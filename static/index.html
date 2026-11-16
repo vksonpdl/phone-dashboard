@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patoli MotoHub-dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Patoli MotoHub-dashboard</h1>
+    <div class="controls">
+      <span id="last-updated">Updating...</span>
+      <label for="refresh-select">Auto-refresh:</label>
+      <select id="refresh-select">
+        <option value="5000">5s</option>
+        <option value="10000" selected>10s</option>
+        <option value="30000">30s</option>
+        <option value="60000">60s</option>
+        <option value="0">Off</option>
+      </select>
+      <button id="refresh-now">↻</button>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs (Add new tab buttons here) -->
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="system">System Overview</button>
+    <button class="tab-btn" data-tab="torrents">Torrent Status</button>
+  </nav>
+
+  <!-- TAB 1: System Overview -->
+  <section id="tab-system" class="tab-panel active">
+    <div class="grid">
+      <!-- Mobile Info Tile -->
+      <div class="card">
+        <h2>Mobile Info</h2>
+        <div class="metric-big" id="dev-model" style="font-size:1.3rem;">--</div>
+        <div class="kv-row"><span>Manufacturer</span><span id="dev-mfg">--</span></div>
+        <div class="kv-row"><span>Android</span><span id="dev-android">--</span></div>
+        <div class="kv-row"><span>Kernel</span><span id="dev-kernel">--</span></div>
+        <div class="kv-row"><span>Uptime</span><span id="dev-uptime">--</span></div>
+      </div>
+      
+      <!-- RAM Tile -->
+      <div class="card">
+        <h2>Memory (RAM)</h2>
+        <div class="metric-big" id="ram-pct">--%</div>
+        <div class="progress-bg"><div class="progress-fill" id="ram-bar" style="width:0%"></div></div>
+        <div class="kv-row"><span>Used</span><span id="ram-used">--</span></div>
+        <div class="kv-row"><span>Available</span><span id="ram-avail">--</span></div>
+        <div class="kv-row"><span>Total</span><span id="ram-total">--</span></div>
+      </div>
+
+      <!-- Storage Tile -->
+      <div class="card">
+        <h2>Storage</h2>
+        <div id="storage-list">Loading...</div>
+      </div>
+
+      <!-- Battery Tile -->
+      <div class="card">
+        <h2>Battery</h2>
+        <div class="metric-big" id="bat-level">--%</div>
+        <div class="kv-row"><span>Status</span><span id="bat-status">--</span></div>
+        <div class="kv-row"><span>Temperature</span><span id="bat-temp">--</span></div>
+        <div class="kv-row"><span>Voltage</span><span id="bat-volt">--</span></div>
+        <div class="kv-row"><span>Health</span><span id="bat-health">--</span></div>
+      </div>
+
+      
+    </div>
+  </section>
+
+  <!-- TAB 2: Torrent Status -->
+  <section id="tab-torrents" class="tab-panel">
+    <div class="card">
+      <h2>Transmission Queue</h2>
+      <div id="torrent-output" class="table-scroll">Loading torrent queue...</div>
+    </div>
+  </section>
+
+  <script>
+    let activeTab = "system";
+    let refreshMs = 10000;
+    let timerId = null;
+
+    // 1. Modular Tab Data Loaders (Register new tab fetchers here)
+    const TAB_LOADERS = {
+      system: async () => {
+        const res = await fetch("/api/system");
+        const data = await res.json();
+
+        // RAM
+        document.getElementById("ram-pct").textContent = `${data.ram.percent}%`;
+        document.getElementById("ram-bar").style.width = `${data.ram.percent}%`;
+        document.getElementById("ram-used").textContent = `${data.ram.used_gb} GB`;
+        document.getElementById("ram-avail").textContent = `${data.ram.avail_gb} GB`;
+        document.getElementById("ram-total").textContent = `${data.ram.total_gb} GB`;
+
+        // Storage
+        const storageHtml = data.storage.map(vol => `
+          <div style="margin-bottom:12px;">
+            <div class="kv-row" style="border:none;">
+              <span>${vol.name}</span>
+              <span>${vol.used_gb} / ${vol.total_gb} GB (${vol.percent}%)</span>
+            </div>
+            <div class="progress-bg" style="margin:4px 0;">
+              <div class="progress-fill" style="width:${vol.percent}%"></div>
+            </div>
+          </div>
+        `).join("");
+        document.getElementById("storage-list").innerHTML = storageHtml || "No volumes found";
+
+        // Battery
+        document.getElementById("bat-level").textContent = `${data.battery.level}%`;
+        const statusEl = document.getElementById("bat-status");
+        statusEl.textContent = data.battery.is_charging ? "⚡ Charging" : data.battery.status;
+        statusEl.className = data.battery.is_charging ? "badge-charging" : "";
+        document.getElementById("bat-temp").textContent = `${data.battery.temp_c} °C`;
+        document.getElementById("bat-volt").textContent = `${data.battery.voltage_v} V`;
+        document.getElementById("bat-health").textContent = data.battery.health;
+
+        // Device Info
+        document.getElementById("dev-model").textContent = data.device.model;
+        document.getElementById("dev-mfg").textContent = data.device.manufacturer;
+        document.getElementById("dev-android").textContent = `Android ${data.device.android_version}`;
+        document.getElementById("dev-kernel").textContent = data.device.kernel;
+        document.getElementById("dev-uptime").textContent = data.device.uptime;
+      },
+
+      torrents: async () => {
+        const res = await fetch("/api/torrents");
+        const data = await res.json();
+        const box = document.getElementById("torrent-output");
+        if (!data.ok) {
+          box.textContent = `Error: ${data.error}`;
+          return;
+        }
+        if (!data.items || data.items.length === 0) {
+          box.textContent = "No active torrents.";
+          return;
+        }
+
+        const table = document.createElement("table");
+        table.className = "torrent-table";
+        const headers = ["ID", "Name", "Progress", "ETA", "Status", "Files"];
+        const headerRow = document.createElement("tr");
+        headers.forEach(label => {
+          const th = document.createElement("th");
+          th.textContent = label;
+          headerRow.appendChild(th);
+        });
+        const thead = document.createElement("thead");
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        data.items.forEach(item => {
+          const row = document.createElement("tr");
+          [item.id, item.name, `${item.done} (${item.have})`, item.eta, item.status]
+            .forEach(value => {
+              const cell = document.createElement("td");
+              cell.textContent = value || "--";
+              row.appendChild(cell);
+            });
+          const downloadCell = document.createElement("td");
+          const showFilesButton = document.createElement("button");
+          showFilesButton.type = "button";
+          showFilesButton.textContent = "Show files";
+          const fileList = document.createElement("div");
+          fileList.className = "torrent-file-list";
+          fileList.hidden = true;
+          let filesLoaded = false;
+          showFilesButton.addEventListener("click", async () => {
+            if (!filesLoaded) {
+              showFilesButton.disabled = true;
+              showFilesButton.textContent = "Loading...";
+              fileList.textContent = "Loading completed files...";
+              fileList.hidden = false;
+              try {
+                const filesResponse = await fetch(`/api/torrents/${encodeURIComponent(item.id)}/files`);
+                const filesData = await filesResponse.json();
+                if (!filesResponse.ok || !filesData.ok) {
+                  throw new Error(filesData.error || "Unable to list downloaded files");
+                }
+                if (filesData.files.length === 0) {
+                  fileList.textContent = "No completed files available on the phone.";
+                } else {
+                  filesData.files.forEach(file => {
+                    const fileLink = document.createElement("a");
+                    fileLink.className = "download-link";
+                    fileLink.href = file.url;
+                    fileLink.textContent = `${file.name} (${file.size})`;
+                    fileList.appendChild(fileLink);
+                  });
+                }
+                filesLoaded = true;
+              } catch (err) {
+                fileList.textContent = `Error: ${err.message}`;
+              } finally {
+                showFilesButton.disabled = false;
+                showFilesButton.textContent = filesLoaded ? "Hide files" : "Retry";
+              }
+            } else {
+              fileList.hidden = !fileList.hidden;
+              showFilesButton.textContent = fileList.hidden ? "Show files" : "Hide files";
+            }
+          });
+          downloadCell.appendChild(showFilesButton);
+          downloadCell.appendChild(fileList);
+          row.appendChild(downloadCell);
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        box.replaceChildren(table);
+      }
+    };
+
+    // 2. Refresh Engine (Applies globally to whichever tab is active)
+    async function refreshActiveTab() {
+      if (TAB_LOADERS[activeTab]) {
+        try {
+          await TAB_LOADERS[activeTab]();
+          const now = new Date().toLocaleTimeString();
+          document.getElementById("last-updated").textContent = `Updated ${now}`;
+        } catch (err) {
+          console.error("Refresh failed:", err);
+        }
+      }
+    }
+
+    function resetTimer() {
+      if (timerId) clearInterval(timerId);
+      if (refreshMs > 0) {
+        timerId = setInterval(refreshActiveTab, refreshMs);
+      }
+    }
+
+    // 3. Event Listeners for Tabs & Interval Dropdown
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+
+        btn.classList.add("active");
+        activeTab = btn.dataset.tab;
+        document.getElementById(`tab-${activeTab}`).classList.add("active");
+
+        refreshActiveTab();
+        resetTimer();
+      });
+    });
+
+    document.getElementById("refresh-select").addEventListener("change", (e) => {
+      refreshMs = parseInt(e.target.value, 10);
+      resetTimer();
+    });
+
+    document.getElementById("refresh-now").addEventListener("click", refreshActiveTab);
+
+    // Initial load
+    refreshActiveTab();
+    resetTimer();
+  </script>
+</body>
+</html>
