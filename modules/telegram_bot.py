@@ -5,6 +5,7 @@ import subprocess
 import telebot
 from telebot import types
 from flask import Blueprint, jsonify
+from modules.system_info import get_battery, get_storage, get_ram
 
 bp = Blueprint("telegram_bot", __name__, url_prefix="/api/telegram")
 
@@ -40,8 +41,42 @@ def main_menu_keyboard():
         types.KeyboardButton("Start Torrent Download"),
         types.KeyboardButton("Get Torrents Status"),
         types.KeyboardButton("Delete Torrent"),
+        types.KeyboardButton("Get Device Info"),
     )
     return markup
+
+
+def format_device_info():
+    try:
+        bat = get_battery()
+        storage_list = get_storage()
+        ram = get_ram()
+
+        lines = ["📱 *Device Status & Info*\n"]
+        
+        # Battery
+        lines.append("🔋 *Battery:*")
+        lines.append(f"• Level: *{bat.get('level')}%* ({bat.get('status')})")
+        lines.append(f"• Temp: `{bat.get('temp_c')}°C` | Voltage: `{bat.get('voltage_v')}V`")
+        lines.append(f"• Health: {bat.get('health')}\n")
+
+        # Storage
+        lines.append("💾 *Storage:*")
+        if storage_list:
+            for vol in storage_list:
+                lines.append(f"• *{vol.get('name')}*: {vol.get('total_gb')} GB total / {vol.get('used_gb')} GB used ({vol.get('percent')}%)")
+        else:
+            lines.append("• No storage volumes detected")
+        lines.append("")
+
+        # RAM
+        lines.append("🧠 *RAM:*")
+        lines.append(f"• Total: `{ram.get('total_gb')} GB` | Used: `{ram.get('used_gb')} GB` ({ram.get('percent')}%)")
+        lines.append(f"• Available: `{ram.get('avail_gb')} GB`")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"❌ Failed to fetch device info:\n`{str(e)}`"
 
 
 def format_torrent_status():
@@ -95,6 +130,14 @@ def start_magnet_download(message):
         bot.send_message(
             message.chat.id,
             format_torrent_status(),
+            parse_mode="Markdown",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    if text in ("Get Device Info", "/deviceinfo"):
+        bot.send_message(
+            message.chat.id,
+            format_device_info(),
             parse_mode="Markdown",
             reply_markup=main_menu_keyboard(),
         )
@@ -206,6 +249,7 @@ def handle_start(message):
         types.BotCommand("download", "Start torrent download via magnet link"),
         types.BotCommand("status", "Get current torrents status"),
         types.BotCommand("delete", "Remove a torrent and its downloaded files"),
+        types.BotCommand("deviceinfo", "Get battery, storage, and RAM device info"),
     ])
 
     bot.send_message(
@@ -237,6 +281,19 @@ def handle_status(message):
     bot.send_message(
         message.chat.id,
         format_torrent_status(),
+        parse_mode="Markdown",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+@bot.message_handler(commands=["deviceinfo"])
+@bot.message_handler(func=lambda m: m.text == "Get Device Info")
+def handle_device_info(message):
+    if not is_authorized(message):
+        return
+    bot.send_message(
+        message.chat.id,
+        format_device_info(),
         parse_mode="Markdown",
         reply_markup=main_menu_keyboard(),
     )
