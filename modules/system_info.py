@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import socket
 from flask import Blueprint, jsonify
 
 bp = Blueprint("system_info", __name__, url_prefix="/api/system")
@@ -85,6 +86,49 @@ def get_battery():
         "health": health
     }
 
+def get_phone_ip():
+    ipv4 = "N/A"
+    ipv6 = "N/A"
+    try:
+        # Determine active local IPv4 via socket connection test
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))
+            ipv4 = s.getsockname()[0]
+        except Exception:
+            pass
+        finally:
+            s.close()
+
+        # Enumerate host addresses for dual-stack support & fallback
+        try:
+            hostname = socket.gethostname()
+            addr_info = socket.getaddrinfo(hostname, None)
+            ipv4_candidates = []
+            ipv6_candidates = []
+            for fam, _, _, _, sockaddr in addr_info:
+                ip = sockaddr[0]
+                if fam == socket.AF_INET:
+                    if not ip.startswith("127."):
+                        ipv4_candidates.append(ip)
+                elif fam == socket.AF_INET6:
+                    if not ip.startswith("::1"):
+                        ipv6_candidates.append(ip.split('%')[0])
+
+            if ipv4 == "N/A" and ipv4_candidates:
+                ipv4 = ipv4_candidates[0]
+            if ipv6_candidates:
+                ipv6 = ipv6_candidates[0]
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    return {
+        "ipv4": ipv4 if ipv4 else "N/A",
+        "ipv6": ipv6 if ipv6 else "N/A"
+    }
+
 def get_device():
     uptime_sec = 0
     try:
@@ -99,7 +143,8 @@ def get_device():
         "manufacturer": _getprop("ro.product.manufacturer", "Unknown"),
         "android_version": _getprop("ro.build.version.release", "12"),
         "kernel": os.uname().release.split("-")[0],
-        "uptime": f"{hours}h {mins}m"
+        "uptime": f"{hours}h {mins}m",
+        "phone_ip": get_phone_ip()
     }
 
 @bp.get("")

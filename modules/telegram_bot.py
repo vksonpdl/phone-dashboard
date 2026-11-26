@@ -5,7 +5,7 @@ import subprocess
 import telebot
 from telebot import types
 from flask import Blueprint, jsonify
-from modules.system_info import get_battery, get_storage, get_ram
+from modules.system_info import get_battery, get_storage, get_ram, get_device
 
 bp = Blueprint("telegram_bot", __name__, url_prefix="/api/telegram")
 
@@ -51,8 +51,18 @@ def format_device_info():
         bat = get_battery()
         storage_list = get_storage()
         ram = get_ram()
+        dev = get_device()
 
         lines = ["📱 *Device Status & Info*\n"]
+        
+        # Device & Network
+        ip = dev.get("phone_ip", {})
+        lines.append("📲 *Device & Network:*")
+        lines.append(f"• Model: *{dev.get('model')}* ({dev.get('manufacturer')})")
+        lines.append(f"• Android: `{dev.get('android_version')}` | Kernel: `{dev.get('kernel')}`")
+        lines.append(f"• Uptime: `{dev.get('uptime')}`")
+        lines.append(f"• Phone IP (IPv4): `{ip.get('ipv4', 'N/A')}`")
+        lines.append(f"• Phone IP (IPv6): `{ip.get('ipv6', 'N/A')}`\n")
         
         # Battery
         lines.append("🔋 *Battery:*")
