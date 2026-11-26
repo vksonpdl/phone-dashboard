@@ -27,6 +27,7 @@
   <nav class="tabs">
     <button class="tab-btn active" data-tab="system">System Overview</button>
     <button class="tab-btn" data-tab="torrents">Torrent Status</button>
+    <button class="tab-btn" data-tab="wifi">Wi-Fi Dashboard</button>
   </nav>
 
   <!-- TAB 1: System Overview -->
@@ -77,6 +78,27 @@
     <div class="card">
       <h2>Transmission Queue</h2>
       <div id="torrent-output" class="table-scroll">Loading torrent queue...</div>
+    </div>
+  </section>
+
+  <!-- TAB 3: Wi-Fi Dashboard -->
+  <section id="tab-wifi" class="tab-panel">
+    <div class="grid">
+      <div class="card">
+        <h2>Active Wi-Fi Connection</h2>
+        <div class="metric-big" id="wifi-ssid">--</div>
+        <div class="kv-row"><span>Status</span><span id="wifi-status">--</span></div>
+        <div class="kv-row"><span>Signal</span><span id="wifi-rssi">--</span></div>
+        <div class="kv-row"><span>IP Address</span><span id="wifi-ip">--</span></div>
+        <div class="kv-row"><span>Gateway</span><span id="wifi-gateway">--</span></div>
+        <div class="kv-row"><span>Frequency</span><span id="wifi-frequency">--</span></div>
+        <div class="kv-row"><span>Link Speed</span><span id="wifi-link-speed">--</span></div>
+        <div class="kv-row"><span>Duration</span><span id="wifi-duration">--</span></div>
+      </div>
+      <div class="card wifi-devices-card">
+        <h2>Connected Devices</h2>
+        <div id="wifi-devices" class="table-scroll">Loading devices...</div>
+      </div>
     </div>
   </section>
 
@@ -210,6 +232,54 @@
           downloadCell.appendChild(showFilesButton);
           downloadCell.appendChild(fileList);
           row.appendChild(downloadCell);
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        box.replaceChildren(table);
+      },
+
+      wifi: async () => {
+        const res = await fetch("/api/wifi");
+        const data = await res.json();
+        const wifi = data.wifi || {};
+
+        document.getElementById("wifi-ssid").textContent = wifi.ssid || "Disconnected";
+        const status = document.getElementById("wifi-status");
+        status.textContent = wifi.connected ? "Connected" : "Disconnected";
+        status.className = wifi.connected ? "wifi-status-badge" : "";
+        document.getElementById("wifi-rssi").textContent = wifi.rssi || "N/A";
+        document.getElementById("wifi-ip").textContent = wifi.ip_address || "N/A";
+        document.getElementById("wifi-gateway").textContent = wifi.gateway || "N/A";
+        document.getElementById("wifi-frequency").textContent = wifi.frequency_band || "N/A";
+        document.getElementById("wifi-link-speed").textContent = wifi.link_speed || "N/A";
+        document.getElementById("wifi-duration").textContent = wifi.connection_duration || "0m";
+
+        const box = document.getElementById("wifi-devices");
+        if (!data.devices || data.devices.length === 0) {
+          box.innerHTML = '<div class="wifi-empty">No connected devices discovered.</div>';
+          return;
+        }
+
+        const table = document.createElement("table");
+        table.className = "wifi-table";
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        ["Hostname", "IP Address", "MAC Address", "Duration"].forEach(label => {
+          const th = document.createElement("th");
+          th.textContent = label;
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        data.devices.forEach(device => {
+          const row = document.createElement("tr");
+          [device.hostname, device.ip_address, device.mac_address, device.connection_duration].forEach(value => {
+            const cell = document.createElement("td");
+            cell.textContent = value || "N/A";
+            row.appendChild(cell);
+          });
           tbody.appendChild(row);
         });
         table.appendChild(tbody);
